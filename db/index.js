@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },
 });
 
 async function initDB() {
@@ -16,7 +16,6 @@ async function initDB() {
         name        TEXT NOT NULL,
         created_at  TIMESTAMPTZ DEFAULT NOW()
       );
-
       CREATE TABLE IF NOT EXISTS history (
         id          SERIAL PRIMARY KEY,
         user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -26,7 +25,6 @@ async function initDB() {
         subject     TEXT DEFAULT '',
         created_at  TIMESTAMPTZ DEFAULT NOW()
       );
-
       CREATE TABLE IF NOT EXISTS favourites (
         id          SERIAL PRIMARY KEY,
         user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -37,7 +35,6 @@ async function initDB() {
         created_at  TIMESTAMPTZ DEFAULT NOW(),
         UNIQUE(user_id, question, mark)
       );
-
       CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id);
       CREATE INDEX IF NOT EXISTS idx_favourites_user ON favourites(user_id);
     `);
