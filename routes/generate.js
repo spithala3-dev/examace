@@ -57,14 +57,17 @@ async function callGemini(prompt) {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2000,
-      }
-    })
+  body: JSON.stringify({
+  contents: [
+    {
+      parts: [{ text: SYSTEM_PROMPT + '\n\n' + prompt }]
+    }
+  ],
+  generationConfig: {
+    temperature: 0.7,
+    maxOutputTokens: 2000,
+  }
+})
   });
 
   const data = await response.json();
