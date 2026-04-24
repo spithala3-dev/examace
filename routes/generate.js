@@ -4,50 +4,71 @@ const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
-const SYSTEM_PROMPT = `You are an expert exam answer writer. Generate realistic human-style exam answers calibrated to the mark value.
+const SYSTEM_PROMPT = `You are an expert exam answer writer. Your job is to generate realistic, human-style exam answers that feel like a top student wrote them — not too long, not too short, calibrated to the mark value.
 
-For 2-mark questions: 1-2 line definition + one real example.
-For 5-mark questions: Definition + 3-4 bullet point uses + brief example.
-For 7-mark questions: Full definition + 5+ uses + detailed example or table for comparisons.
-For 10-mark questions: Comprehensive answer with multiple examples, tables, code if needed.
+RULES BY MARK VALUE:
 
-Use markdown formatting. Bold key terms. Use tables for comparisons. Use code blocks for code questions.`;
+For 2-mark questions:
+* Give a clear 1-2 line definition
+* One real-world example (1 sentence)
 
-async function callGemini(userPrompt) {
-  const apiKey = process.env.GEMINI_API_KEY;
+For 5-mark questions:
+* Definition (2-3 lines)
+* Key uses/applications (3-4 bullet points)
+* One example explained briefly
 
-  console.log('Calling Gemini with key:', apiKey ? apiKey.substring(0, 10) + '...' : 'NOT SET');
+For 7-mark questions:
+* Definition (3-4 lines)
+* Uses/applications (5+ points)
+* If comparison question: make a proper markdown table with 5-6 differences
+* If code question: definition + working code + exact output + explain line by line
 
-  const fullPrompt = SYSTEM_PROMPT + '\n\n' + userPrompt;
+For 10-mark questions:
+* Comprehensive definition (4-5 lines)
+* All major uses/applications (6+ bullet points)
+* Multiple detailed examples
+* If comparison: full markdown table with 7-8 differences
 
-const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`;
-  const response = await fetch(url, {
+QUESTION TYPE DETECTION:
+* "What is / Define / Explain" → standard definition format
+* "Compare / Difference between" → always use a table
+* "Write a program / Code for" → definition + code + output
+* "Advantages / Disadvantages" → bullet-point list
+
+TONE: Write like a final-year student. Use markdown. Bold key terms. Use code blocks for code.`;
+
+async function callGroq(userPrompt) {
+  const apiKey = process.env.GROQ_API_KEY;
+  console.log('Calling Groq, key:', apiKey ? apiKey.substring(0, 8) + '...' : 'NOT SET');
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
     body: JSON.stringify({
-     contents: [{
-  role: 'user',
-  parts: [{ text: fullPrompt }]
-}],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2000
-      }
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000
     })
   });
 
   const data = await response.json();
-  console.log('Gemini response status:', response.status);
-  console.log('Gemini response:', JSON.stringify(data).substring(0, 200));
+  console.log('Groq status:', response.status);
 
   if (!response.ok) {
-    throw new Error(data.error?.message || 'Gemini API error');
+    console.error('Groq error:', JSON.stringify(data));
+    throw new Error(data.error?.message || 'Groq API error');
   }
 
-  return data.candidates[0].content.parts[0].text;
+  return data.choices[0].message.content;
 }
 
-// POST /api/generate/single
 router.post('/single', authMiddleware, async (req, res) => {
   const { question, mark, subject } = req.body;
 
@@ -62,7 +83,7 @@ router.post('/single', authMiddleware, async (req, res) => {
       ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
       : `Question (${mark} marks): ${question}`;
 
-    const answer = await callGemini(userPrompt);
+    const answer = await callGroq(userPrompt);
 
     await pool.query(
       'INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
@@ -77,7 +98,6 @@ router.post('/single', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/generate/batch
 router.post('/batch', authMiddleware, async (req, res) => {
   const { questions } = req.body;
 
@@ -101,7 +121,7 @@ router.post('/batch', authMiddleware, async (req, res) => {
         ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
         : `Question (${mark} marks): ${question}`;
 
-      const answer = await callGemini(userPrompt);
+      const answer = await callGroq(userPrompt);
 
       await pool.query(
         'INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
@@ -111,7 +131,6 @@ router.post('/batch', authMiddleware, async (req, res) => {
       results.push({ question, answer, mark: Number(mark), subject: subject || '' });
 
     } catch (err) {
-      console.error('Batch error:', err.message);
       errors.push({ question, error: err.message });
     }
   }
