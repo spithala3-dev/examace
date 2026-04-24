@@ -72,7 +72,7 @@ router.post('/single', authMiddleware, async (req, res) => {
       : `Question (${mark} marks): ${question}`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-5',
+model: 'claude-opus-4-5-20251101',
       max_tokens: 2000,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userPrompt }],
@@ -120,7 +120,7 @@ router.post('/batch', authMiddleware, async (req, res) => {
         : `Question (${mark} marks): ${question}`;
 
       const response = await anthropic.messages.create({
-        model: 'claude-opus-4-5',
+model: 'claude-opus-4-5-20251101',
         max_tokens: 2000,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
