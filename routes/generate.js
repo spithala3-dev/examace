@@ -1,10 +1,8 @@
 const express = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
 const { pool } = require('../db');
 const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `You are an expert exam answer writer. Your job is to generate realistic, human-style exam answers that feel like a top student wrote them — not too long, not too short, calibrated to the mark value.
 
@@ -37,7 +35,6 @@ For 10-mark questions:
 * If comparison: full markdown table with 7-8 differences
 * If code: definition + working code + output + line-by-line explanation + use cases
 * Include [DIAGRAM: <search query>] where visuals would add value
-* Show depth of understanding — include edge cases, limitations, or advanced aspects
 
 QUESTION TYPE DETECTION:
 * "What is / Define / Explain" → standard definition format
@@ -45,13 +42,39 @@ QUESTION TYPE DETECTION:
 * "Write a program / Code for" → definition + code + output
 * "Advantages / Disadvantages" → bullet-point list with brief explanation each
 
-TONE: Write like a final-year student who studied well. Avoid AI-sounding phrases. Be direct, use real examples from industry, academia, or everyday life. Format using markdown. Use bold for key terms. Use \`\`\` for code blocks.
+TONE: Write like a final-year student who studied well. Avoid AI-sounding phrases. Be direct, use real examples from industry, academia, or everyday life. Format using markdown. Use bold for key terms. Use backticks for code blocks.
 
 DO NOT:
 * Copy text verbatim from textbooks
 * Write one-word bullet points
-* Use vague examples like "for example, in many cases..."
+* Use vague examples
 * Exceed the implied length for that mark value`;
+
+async function callGemini(prompt) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 2000,
+      }
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error?.message || 'Gemini API error');
+  }
+
+  return data.candidates[0].content.parts[0].text;
+}
 
 // POST /api/generate/single
 router.post('/single', authMiddleware, async (req, res) => {
@@ -71,33 +94,24 @@ router.post('/single', authMiddleware, async (req, res) => {
       ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
       : `Question (${mark} marks): ${question}`;
 
-    const response = await anthropic.messages.create({
-model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const answer = await callGemini(userPrompt);
 
-    const answer = response.content[0].text;
-
-    // Save to history
     await pool.query(
       'INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
       [req.userId, question.trim(), answer, Number(mark), subject || '']
     );
 
     res.json({ answer, question, mark: Number(mark), subject: subject || '' });
+
   } catch (err) {
     console.error('Generate error:', err);
-    if (err.status === 429)
-      return res.status(429).json({ error: 'Rate limit reached. Please wait a moment.' });
-    res.status(500).json({ error: 'Failed to generate answer. Please try again.' });
+    res.status(500).json({ error: err.message || 'Failed to generate answer. Please try again.' });
   }
 });
 
 // POST /api/generate/batch
 router.post('/batch', authMiddleware, async (req, res) => {
-  const { questions } = req.body; // [{ question, mark, subject }]
+  const { questions } = req.body;
 
   if (!Array.isArray(questions) || questions.length === 0)
     return res.status(400).json({ error: 'Questions array is required' });
@@ -119,14 +133,7 @@ router.post('/batch', authMiddleware, async (req, res) => {
         ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
         : `Question (${mark} marks): ${question}`;
 
-      const response = await anthropic.messages.create({
-model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }],
-      });
-
-      const answer = response.content[0].text;
+      const answer = await callGemini(userPrompt);
 
       await pool.query(
         'INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
@@ -134,6 +141,7 @@ model: 'claude-haiku-4-5-20251001',
       );
 
       results.push({ question, answer, mark: Number(mark), subject: subject || '' });
+
     } catch (err) {
       console.error(`Batch error for "${question}":`, err.message);
       errors.push({ question, error: 'Generation failed' });
