@@ -6,21 +6,9 @@ const { initDB } = require('./db');
 const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
-
 app.use(cors({
-  origin: (origin, cb) => {
-    // Allow requests with no origin (Postman, server-to-server)
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-      return cb(null, true);
-    }
-    cb(new Error(`CORS: origin ${origin} not allowed`));
-  },
-  credentials: true,
+  origin: '*',
+  credentials: false,
 }));
 
 // ── BODY PARSER ───────────────────────────────────────────────────────────────
