@@ -6,43 +6,62 @@ const router = express.Router();
 
 const SYSTEM_PROMPT = `You are an expert exam answer writer. Generate structured exam answers with CLEAR SECTIONS.
 
-CRITICAL FORMAT RULES — ALWAYS follow this exact structure:
+CRITICAL FORMAT RULES — ALWAYS use this exact structure with ## headings:
 
 ## DEFINITION
-[Write the definition here — 1-2 lines for 2 marks, 2-3 lines for 5 marks, 3-4 lines for 7-10 marks]
+[Write definition here]
 
 ## KEY POINTS
-[Bullet points of main concepts — skip for 2 mark questions]
-- Point 1
-- Point 2
+- Point 1 with explanation
+- Point 2 with explanation
 
-## USES / APPLICATIONS
-[Real-world uses — skip for 2 mark questions]
+## USES / APPLICATIONS  
 - Use 1
 - Use 2
 
 ## EXAMPLE
-[One concrete real-world example explained clearly]
+[Concrete real-world example]
 
 ## COMPARISON TABLE
-[ONLY if the question asks to compare/differentiate — use markdown table]
+[ONLY for compare/difference questions — use markdown table]
 | Feature | X | Y |
 |---------|---|---|
+| Point 1 | ... | ... |
 
 ## CODE
-[ONLY if question asks for code — give working code with output]
+[ONLY for code questions]
+\`\`\`language
+code here
+\`\`\`
+Output:
+\`\`\`
+output here
+\`\`\`
 
 ## DIAGRAM
-[ONLY if a diagram would help — write: DIAGRAM: <description of what to draw>]
+DIAGRAM: process state diagram with states new ready running waiting terminated
+
+DIAGRAM RULES — write DIAGRAM: followed by description for these topics:
+- OS process states → DIAGRAM: process state diagram
+- Data structures (stack/queue/tree/linkedlist) → DIAGRAM: stack data structure
+- Network layers → DIAGRAM: OSI model layers
+- Sorting algorithms → DIAGRAM: bubble sort steps
+- Any flowchart/cycle/architecture → DIAGRAM: relevant description
+
+MATH RULES:
+- For math questions: show step-by-step solution
+- Write each step on new line
+- Use plain text math notation: x^2 + 3x + 2 = 0
+- Show formula first, then substitute values, then solve
 
 MARK-BASED LENGTH:
-- 2 marks: DEFINITION + EXAMPLE only (short, 4-6 lines total)
-- 5 marks: DEFINITION + KEY POINTS + EXAMPLE (medium)
-- 7 marks: All sections relevant to question (detailed)
+- 2 marks: DEFINITION + EXAMPLE only (short)
+- 5 marks: DEFINITION + KEY POINTS + EXAMPLE
+- 7 marks: All relevant sections, detailed
 - 10 marks: All sections, very detailed, multiple examples
 
 TONE: Final-year student. Direct. Real examples. Bold **key terms**.
-DO NOT write one-word bullets. DO NOT be vague.`;
+NEVER write one-word bullets. NEVER be vague.`;
 
 async function callGroq(userPrompt) {
   const apiKey = process.env.GROQ_API_KEY;
@@ -62,13 +81,11 @@ async function callGroq(userPrompt) {
       max_tokens: 2000
     })
   });
-
   const data = await response.json();
   if (!response.ok) throw new Error(data.error?.message || 'Groq API error');
   return data.choices[0].message.content;
 }
 
-// POST /api/generate/single
 router.post('/single', authMiddleware, async (req, res) => {
   const { question, mark, subject } = req.body;
   if (!question || !mark) return res.status(400).json({ error: 'Question and mark value are required' });
@@ -89,7 +106,6 @@ router.post('/single', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/generate/batch
 router.post('/batch', authMiddleware, async (req, res) => {
   const { questions } = req.body;
   if (!Array.isArray(questions) || questions.length === 0) return res.status(400).json({ error: 'Questions array is required' });
@@ -99,7 +115,9 @@ router.post('/batch', authMiddleware, async (req, res) => {
     const { question, mark, subject } = q;
     if (!question || !mark) { errors.push({ question, error: 'Missing question or mark' }); continue; }
     try {
-      const userPrompt = subject ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}` : `Question (${mark} marks): ${question}`;
+      const userPrompt = subject
+        ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
+        : `Question (${mark} marks): ${question}`;
       const answer = await callGroq(userPrompt);
       await pool.query('INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
         [req.userId, question.trim(), answer, Number(mark), subject || '']);
