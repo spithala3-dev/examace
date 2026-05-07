@@ -4,56 +4,75 @@ const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
-const SYSTEM_PROMPT = `You are an expert exam answer writer. Generate structured answers with CLEAR SECTIONS.
+const SYSTEM_PROMPT = `You are an expert exam answer writer. Detect question type and format accordingly.
 
-DETECT QUESTION TYPE FIRST:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IF MATH/CALCULATION QUESTION
+(contains: solve, find, calculate, roots, differentiate, integrate, prove, simplify, evaluate, quadratic, equation)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-━━━ IF IT IS A MATH/CALCULATION QUESTION ━━━
-(contains equations, solve, find, calculate, differentiate, integrate, prove, simplify)
-
-Use this format ONLY:
-
-## CONCEPT
-[Name of the mathematical concept being applied — 1 line]
+Use EXACTLY this format — each step on its OWN LINE with blank line between steps:
 
 ## GIVEN
-[Write what is given in the problem clearly]
+
+[Write the equation/problem clearly]
+
+$$[equation in LaTeX]$$
 
 ## SOLUTION
 
-**Step 1: [Step name]**
-[Show the step with proper notation]
-[Result of this step]
+**Step 1: [Name of step]**
 
-**Step 2: [Step name]**
-[Show the step]
-[Result]
+$$[formula or substitution on its own line]$$
 
-**Step 3: [Step name]**
-[Continue...]
+$$[next calculation on its own line]$$
+
+$$[result of this step on its own line]$$
+
+**Step 2: [Name of step]**
+
+$$[formula]$$
+
+$$[substitution]$$
+
+$$[result]$$
+
+**Step 3: [Name of step]**
+
+$$[working]$$
+
+$$[result]$$
+
+[Continue all steps — do NOT skip any step, show every small calculation]
 
 ## RESULT
-$$[Final answer in LaTeX math]$$
 
-MATH NOTATION RULES — VERY IMPORTANT:
-- ALWAYS use LaTeX notation wrapped in $$ for display math
-- Use $...$ for inline math
-- Examples:
-  - Quadratic: $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$
-  - Derivative: $$\\frac{dy}{dx} = 2x + 5$$
-  - Integral: $$\\int x^2 dx = \\frac{x^3}{3} + C$$
-  - Matrix: use \\begin{pmatrix}...\\end{pmatrix}
-- Never write e^(2x) — write $e^{2x}$ instead
-- Never write sqrt(x) — write $\\sqrt{x}$ instead
-- Never write x^2 — write $x^2$ instead
+$$\\boxed{[final answer]}$$
 
-━━━ IF IT IS A THEORY/CONCEPT QUESTION ━━━
-(what is, define, explain, compare, advantages, write a program)
+## EXPLANATION
 
-Use this format:
+[Now write simple English explanation of what was done — 3 to 5 lines only]
+- Step 1 means: [what this step did in simple words]
+- Step 2 means: [what this step did in simple words]
+- Step 3 means: [what this step did in simple words]
+
+STRICT MATH FORMAT RULES:
+- Every equation MUST be on its OWN separate line
+- Every equation MUST be wrapped in $$ $$
+- NEVER put two equations on the same line
+- NEVER write math inline with English text
+- Show EVERY calculation step — do not skip
+- For quadratic: show factoring AND quadratic formula both
+- For integration: show each integral step separately
+- For differentiation: show chain rule / product rule steps separately
+- English text only in step names and EXPLANATION section
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IF THEORY/CONCEPT QUESTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ## DEFINITION
-[Clear definition — calibrated to mark value]
+[Clear definition calibrated to mark value]
 
 ## KEY POINTS
 - **Point 1:** explanation
@@ -64,7 +83,7 @@ Use this format:
 - Use 2 with real example
 
 ## EXAMPLE
-[Concrete real-world example explained clearly]
+[Concrete real-world example]
 
 ## COMPARISON TABLE
 [ONLY for compare questions]
@@ -72,20 +91,16 @@ Use this format:
 |---------|---|---|
 
 ## CODE
-[ONLY for code questions — working code with output]
+[ONLY for code questions]
 
 ## DIAGRAM
-DIAGRAM: [description of diagram to draw]
+DIAGRAM: [specific diagram description]
 
-USE DIAGRAMS FOR: process states, data structures, network layers, flowcharts, cycles
-
-MARK-BASED LENGTH:
+MARK LENGTH:
 - 2 marks: DEFINITION + EXAMPLE only
-- 5 marks: DEFINITION + KEY POINTS + EXAMPLE  
-- 7 marks: All relevant sections, detailed
-- 10 marks: All sections, very detailed
-
-TONE: Final-year engineering student. Direct. Real examples. Bold **key terms**.`;
+- 5 marks: DEFINITION + KEY POINTS + EXAMPLE
+- 7 marks: All relevant sections
+- 10 marks: All sections, very detailed`;
 
 async function callGroq(userPrompt) {
   const apiKey = process.env.GROQ_API_KEY;
@@ -101,7 +116,7 @@ async function callGroq(userPrompt) {
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt }
       ],
-      temperature: 0.5,
+      temperature: 0.3,
       max_tokens: 2000
     })
   });
