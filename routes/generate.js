@@ -1,115 +1,80 @@
 const express = require('express');
 const { pool } = require('../db');
 const authMiddleware = require('../middleware/auth');
-
 const router = express.Router();
 
-const SYSTEM_PROMPT = `You are an expert exam answer writer. Detect question type and format accordingly.
+const SYSTEM_PROMPT = `You are an expert exam answer writer. Format answers with clear sections.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-IF MATH/CALCULATION QUESTION
-(contains: solve, find, calculate, roots, differentiate, integrate, prove, simplify, evaluate, quadratic, equation)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FOR THEORY QUESTIONS use these sections:
 
-Use EXACTLY this format — each step on its OWN LINE with blank line between steps:
+## DEFINITION
+[definition here]
+
+## KEY POINTS
+- point 1
+- point 2
+
+## USES / APPLICATIONS
+- use 1
+- use 2
+
+## EXAMPLE
+[example here]
+
+## COMPARISON TABLE
+[only for compare questions]
+
+## CODE
+[only for code questions]
+
+## DIAGRAM
+DIAGRAM: [write exact diagram type here]
+
+DIAGRAM RULES - you MUST include a DIAGRAM section for these topics:
+- deadlock → DIAGRAM: deadlock resource allocation graph with processes and resources
+- process states → DIAGRAM: process state diagram with new ready running waiting terminated
+- stack → DIAGRAM: stack data structure with push pop operations
+- queue → DIAGRAM: queue data structure with enqueue dequeue
+- linked list → DIAGRAM: linked list with nodes and pointers
+- binary tree → DIAGRAM: binary search tree with nodes
+- OSI model → DIAGRAM: OSI model seven layers
+- TCP/IP → DIAGRAM: TCP/IP model four layers
+- paging → DIAGRAM: paging memory management with page table
+- sorting → DIAGRAM: bubble sort step by step array
+- circuit → DIAGRAM: circuit diagram with components
+- rectifier → DIAGRAM: full wave rectifier circuit with diodes
+
+FOR MATH QUESTIONS use:
 
 ## GIVEN
-
-[Write the equation/problem clearly]
-
-$$[equation in LaTeX]$$
+$$[equation]$$
 
 ## SOLUTION
 
-**Step 1: [Name of step]**
+**Step 1: [name]**
 
-$$[formula or substitution on its own line]$$
+$$[equation on its own line]$$
 
-$$[next calculation on its own line]$$
+$$[next calculation]$$
 
-$$[result of this step on its own line]$$
+**Step 2: [name]**
 
-**Step 2: [Name of step]**
-
-$$[formula]$$
-
-$$[substitution]$$
-
-$$[result]$$
-
-**Step 3: [Name of step]**
-
-$$[working]$$
-
-$$[result]$$
-
-[Continue all steps — do NOT skip any step, show every small calculation]
+$$[equation]$$
 
 ## RESULT
-
-$$\\boxed{[final answer]}$$
+$$\\boxed{[answer]}$$
 
 ## EXPLANATION
+- Step 1: [simple English]
+- Step 2: [simple English]
 
-[Now write simple English explanation of what was done — 3 to 5 lines only]
-- Step 1 means: [what this step did in simple words]
-- Step 2 means: [what this step did in simple words]
-- Step 3 means: [what this step did in simple words]
-
-STRICT MATH FORMAT RULES:
-- Every equation MUST be on its OWN separate line
-- Every equation MUST be wrapped in $$ $$
-- NEVER put two equations on the same line
-- NEVER write math inline with English text
-- Show EVERY calculation step — do not skip
-- For quadratic: show factoring AND quadratic formula both
-- For integration: show each integral step separately
-- For differentiation: show chain rule / product rule steps separately
-- English text only in step names and EXPLANATION section
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-IF THEORY/CONCEPT QUESTION
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-## DEFINITION
-[Clear definition calibrated to mark value]
-
-## KEY POINTS
-- **Point 1:** explanation
-- **Point 2:** explanation
-
-## USES / APPLICATIONS
-- Use 1 with real example
-- Use 2 with real example
-
-## EXAMPLE
-[Concrete real-world example]
-
-## COMPARISON TABLE
-[ONLY for compare questions]
-| Feature | A | B |
-|---------|---|---|
-
-## CODE
-[ONLY for code questions]
-
-## DIAGRAM
-DIAGRAM: [specific diagram description]
-
-MARK LENGTH:
-- 2 marks: DEFINITION + EXAMPLE only
-- 5 marks: DEFINITION + KEY POINTS + EXAMPLE
-- 7 marks: All relevant sections
-- 10 marks: All sections, very detailed`;
+MARK LENGTH: 2=short, 5=medium, 7=detailed, 10=very detailed`;
 
 async function callGroq(userPrompt) {
   const apiKey = process.env.GROQ_API_KEY;
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [
@@ -125,6 +90,37 @@ async function callGroq(userPrompt) {
   return data.choices[0].message.content;
 }
 
+// Detect if topic needs a diagram and append if AI missed it
+function ensureDiagram(answer, question) {
+  if (answer.includes('DIAGRAM:')) return answer;
+  const q = question.toLowerCase();
+  const diagrams = {
+    'deadlock': 'deadlock resource allocation graph with processes and resources',
+    'process state': 'process state diagram with new ready running waiting terminated',
+    'stack': 'stack data structure with push pop operations',
+    'queue': 'queue data structure with enqueue dequeue',
+    'linked list': 'linked list with nodes and pointers',
+    'binary tree': 'binary search tree with nodes',
+    'bst': 'binary search tree with nodes',
+    'osi model': 'OSI model seven layers',
+    'osi': 'OSI model seven layers',
+    'tcp': 'TCP/IP model four layers',
+    'paging': 'paging memory management with page table',
+    'segmentation': 'memory segmentation diagram',
+    'bubble sort': 'bubble sort step by step array',
+    'sorting': 'bubble sort step by step array',
+    'rectifier': 'full wave rectifier circuit with diodes transformer and load resistor',
+    'circuit': 'circuit diagram with components',
+    'virtual memory': 'virtual memory paging with page table',
+  };
+  for (const [keyword, diag] of Object.entries(diagrams)) {
+    if (q.includes(keyword)) {
+      return answer + `\n\n## DIAGRAM\nDIAGRAM: ${diag}`;
+    }
+  }
+  return answer;
+}
+
 router.post('/single', authMiddleware, async (req, res) => {
   const { question, mark, subject } = req.body;
   if (!question || !mark) return res.status(400).json({ error: 'Question and mark value are required' });
@@ -133,7 +129,9 @@ router.post('/single', authMiddleware, async (req, res) => {
     const userPrompt = subject
       ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
       : `Question (${mark} marks): ${question}`;
-    const answer = await callGroq(userPrompt);
+    let answer = await callGroq(userPrompt);
+    // Auto-add diagram if AI missed it
+    if (Number(mark) >= 5) answer = ensureDiagram(answer, question);
     await pool.query(
       'INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
       [req.userId, question.trim(), answer, Number(mark), subject || '']
@@ -147,8 +145,10 @@ router.post('/single', authMiddleware, async (req, res) => {
 
 router.post('/batch', authMiddleware, async (req, res) => {
   const { questions } = req.body;
-  if (!Array.isArray(questions) || questions.length === 0) return res.status(400).json({ error: 'Questions array is required' });
-  if (questions.length > 5) return res.status(400).json({ error: 'Maximum 5 questions per batch' });
+  if (!Array.isArray(questions) || questions.length === 0)
+    return res.status(400).json({ error: 'Questions array is required' });
+  if (questions.length > 5)
+    return res.status(400).json({ error: 'Maximum 5 questions per batch' });
   const results = [], errors = [];
   for (const q of questions) {
     const { question, mark, subject } = q;
@@ -157,7 +157,8 @@ router.post('/batch', authMiddleware, async (req, res) => {
       const userPrompt = subject
         ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
         : `Question (${mark} marks): ${question}`;
-      const answer = await callGroq(userPrompt);
+      let answer = await callGroq(userPrompt);
+      if (Number(mark) >= 5) answer = ensureDiagram(answer, question);
       await pool.query('INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
         [req.userId, question.trim(), answer, Number(mark), subject || '']);
       results.push({ question, answer, mark: Number(mark), subject: subject || '' });
