@@ -2,22 +2,99 @@ const express = require('express');
 const { pool } = require('../db');
 const authMiddleware = require('../middleware/auth');
 const router = express.Router();
-
 function isMathQuestion(question) {
   const mathPatterns = [
-    /solve/i, /find\s+the/i, /calculate/i, /evaluate/i, /simplify/i,
-    /differentiate/i, /integrate/i, /prove/i, /derivative/i,
+    /solve/i,
+    /find\s+the/i,
+    /calculate/i,
+    /evaluate/i,
+    /simplify/i,
+    /differentiate/i,
+    /integrate/i,
+    /prove/i,
+    /derivative/i,
+
     /\d+\s*[\+\-\*\/\^]\s*\d+/,
-    /x\^?\d/, /y\^?\d/,
-    /\\frac/, /\\sqrt/, /\bdx\b/, /\bdy\b/,
-    /roots?\s+of/i, /factor/i,
-    /matrix/i, /determinant/i, /eigenvalue/i,
-    /\blimit\b/i, /\blim\b/i,
-    /\blog\b/i, /\bln\b/i,
-    /adjacency matrix/i, /truth table/i,
-    /=\s*0/, /=\s*\d/,
+
+    /x\^?\d/i,
+    /y\^?\d/i,
+
+    /\\frac/i,
+    /\\sqrt/i,
+
+    /\bdx\b/i,
+    /\bdy\b/i,
+
+    /roots?\s+of/i,
+    /factor/i,
+
+    /matrix/i,
+    /determinant/i,
+    /eigenvalue/i,
+
+    /\blimit\b/i,
+    /\blim\b/i,
+
+    /\blog\b/i,
+    /\bln\b/i,
+
+    /adjacency matrix/i,
+    /truth table/i,
+
+    /=\s*0/,
+    /=\s*\d/
   ];
-  return mathPatterns.some(p => p.test(question));
+
+  return mathPatterns.some(pattern =>
+    pattern.test(question)
+  );
+}
+function detectQuestionType(question){
+  const q = question.toLowerCase();
+
+if(/compare|difference|distinguish|differentiate|vs|versus/i.test(q))
+  return 'comparison';
+
+if(/write.*program|write.*code|implement|c program|java program|python program/i.test(q))
+    return 'programming';
+
+if(/algorithm|bfs|dfs|merge sort|quick sort|dijkstra|prim|kruskal/i.test(q))
+  return 'algorithm';
+
+  if(/advantages|benefits/.test(q))
+    return 'advantages';
+
+  if(/what is|define/.test(q))
+    return 'definition';
+
+  if(isMathQuestion(question))
+    return 'mathematics';
+
+  return 'theory';
+}
+function selectPrompt(type) {
+  switch (type) {
+    case 'definition':
+      return DEFINITION_PROMPT;
+
+    case 'comparison':
+      return COMPARISON_PROMPT;
+
+    case 'programming':
+      return PROGRAMMING_PROMPT;
+
+    case 'algorithm':
+      return PROGRAMMING_PROMPT;
+
+    case 'advantages':
+      return THEORY_PROMPT;
+
+    case 'mathematics':
+      return MATH_PROMPT;
+
+    default:
+      return THEORY_PROMPT;
+  }
 }
 
 const MATH_PROMPT = `You are a mathematics expert. Solve problems step by step.
@@ -123,7 +200,70 @@ STRICT RULES:
 - Do NOT add DIAGRAM unless concept is visual
 - Bold **key terms** only
 - No filler sentences`;
+const DEFINITION_PROMPT = `
+You are an engineering exam answer writer.
 
+Answer according to marks.
+
+## DEFINITION
+Clear and correct definition.
+
+## KEY POINTS
+- Important point 1
+- Important point 2
+- Important point 3
+
+## EXAMPLE
+Simple engineering example.
+`;
+
+const COMPARISON_PROMPT = `
+You are an engineering exam answer writer.
+
+IMPORTANT:
+Answer ONLY using a comparison table.
+
+Format:
+
+## COMPARISON
+
+| Feature | Item A | Item B |
+|----------|----------|----------|
+
+Provide enough rows according to marks.
+
+No unnecessary paragraphs.
+`;
+
+const PROGRAMMING_PROMPT = `
+You are an engineering programming expert.
+
+Format:
+
+## DEFINITION
+
+## ALGORITHM
+
+Step 1
+Step 2
+Step 3
+
+## PROGRAM
+
+\`\`\`
+code
+\`\`\`
+
+## OUTPUT
+
+\`\`\`
+output
+\`\`\`
+
+## TIME COMPLEXITY
+
+## SPACE COMPLEXITY
+`;
 async function callGroq(messages) {
   const apiKey = process.env.GROQ_API_KEY;
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -167,8 +307,13 @@ router.post('/single', authMiddleware, async (req, res) => {
   if (!question || !mark) return res.status(400).json({ error: 'Question and mark required' });
   if (![2, 5, 7, 10].includes(Number(mark))) return res.status(400).json({ error: 'Mark must be 2,5,7,10' });
   try {
-    const isMath = isMathQuestion(question);
-    const systemPrompt = isMath ? MATH_PROMPT : THEORY_PROMPT;
+    const questionType = detectQuestionType(question);
+
+const systemPrompt =
+  selectPrompt(questionType);
+
+const isMath =
+  questionType === 'mathematics';
     const userMsg = subject
       ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
       : `Question (${mark} marks): ${question}`;
@@ -199,8 +344,13 @@ router.post('/batch', authMiddleware, async (req, res) => {
     const { question, mark, subject } = q;
     if (!question || !mark) { errors.push({ question, error: 'Missing fields' }); continue; }
     try {
-      const isMath = isMathQuestion(question);
-      const systemPrompt = isMath ? MATH_PROMPT : THEORY_PROMPT;
+    const questionType = detectQuestionType(question);
+
+const systemPrompt =
+  selectPrompt(questionType);
+
+const isMath =
+  questionType === 'mathematics';
       const userMsg = subject
         ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
         : `Question (${mark} marks): ${question}`;
