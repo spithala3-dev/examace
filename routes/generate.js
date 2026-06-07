@@ -3,121 +3,112 @@ const { pool } = require('../db');
 const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 
-// Detect if question is math/calculation
 function isMathQuestion(question) {
-  const q = question.toLowerCase();
   const mathPatterns = [
     /solve/i, /find\s+the/i, /calculate/i, /evaluate/i, /simplify/i,
     /differentiate/i, /integrate/i, /prove/i, /derivative/i,
-    /\d+\s*[\+\-\*\/\^]\s*\d+/, // arithmetic
-    /x\^?\d/, /y\^?\d/, // variables
-    /\\frac/, /\\sqrt/, /dx/, /dy/,
-    /equation/i, /roots?\s+of/i, /factor/i,
+    /\d+\s*[\+\-\*\/\^]\s*\d+/,
+    /x\^?\d/, /y\^?\d/,
+    /\\frac/, /\\sqrt/, /\bdx\b/, /\bdy\b/,
+    /roots?\s+of/i, /factor/i,
     /matrix/i, /determinant/i, /eigenvalue/i,
-    /limit/i, /lim\s/i, /infinity/i,
-    /log\s/i, /ln\s/i, /sin|cos|tan/i,
+    /\blimit\b/i, /\blim\b/i,
+    /\blog\b/i, /\bln\b/i,
+    /adjacency matrix/i, /truth table/i,
     /=\s*0/, /=\s*\d/,
   ];
   return mathPatterns.some(p => p.test(question));
 }
 
-const MATH_PROMPT = `You are a mathematics expert. Solve the given math problem step by step.
+const MATH_PROMPT = `You are a mathematics expert. Solve problems step by step.
 
-FORMAT RULES — FOLLOW EXACTLY:
-1. Start directly with the solution — NO headings like "GIVEN" or "CONCEPT" for simple problems
-2. Each step on its OWN LINE
-3. Every equation wrapped in $$ on its own line
-4. NEVER put two equations on same line
-5. NEVER mix English text with equations on same line
-6. Show EVERY calculation step — do not skip any
+FORMAT RULES:
+- Each equation on its OWN LINE wrapped in $$
+- NEVER put two equations on the same line
+- NEVER mix text and equations on the same line
+- Show EVERY step — never skip
+- Use LaTeX: \\frac{a}{b}, \\sqrt{x}, \\pm, x^2, \\times
 
 FORMAT:
 
-**Step 1:** [brief name]
+**Step 1:** [name]
 
-$$[equation]$$
+$$[equation or formula]$$
 
-$$[next line of working]$$
-
-$$[result]$$
-
-**Step 2:** [brief name]
-
-$$[equation]$$
+$$[substitution]$$
 
 $$[result]$$
 
-...continue all steps...
+**Step 2:** [name]
+
+$$[working]$$
+
+$$[result]$$
 
 $$\\boxed{[final answer]}$$
 
-**Note:** [1-2 lines of explanation only if really needed — skip if obvious]
+MATRIX RULES — VERY IMPORTANT:
+- Write matrices as JSON arrays: [[1,0,1],[0,1,0],[1,0,1]]
+- Each row in its own inner array
+- This renders as a proper grid with borders
+- Example adjacency matrix: [[0,1,1,0],[1,0,0,1],[1,0,0,1],[0,1,1,0]]
 
-STRICT RULES:
-- Use LaTeX: \\frac{a}{b}, \\sqrt{x}, \\pm, x^2, x_1
-- Show substitution step always
-- Show simplification step always  
-- Box the final answer
-- NO unnecessary headings
-- NO long English paragraphs
-- For quadratic: show factoring OR formula method clearly
-- For calculus: show each rule applied`;
+TRUTH TABLE RULES — VERY IMPORTANT:
+- Use markdown table format with | separators
+- Headers: P | Q | R | P→Q | Q→R | (P→Q)∧(Q→R) | P→R
+- Values: T or F only
+- Every combination of T/F for input variables
+- Example:
+| P | Q | P→Q |
+|---|---|-----|
+| T | T | T |
+| T | F | F |
+| F | T | T |
+| F | F | T |
 
-const THEORY_PROMPT = `You are an expert exam answer writer. Generate structured answers.
+No unnecessary English paragraphs. Just steps and math.`;
 
-DETECT QUESTION TYPE:
-- "What is / Define / Explain" → Definition format
-- "Compare / Difference" → Table format  
-- "Write a program / Code" → Code format
-- "Advantages / Disadvantages" → Bullet list
-- "Draw / Explain with diagram" → Include DIAGRAM
+const THEORY_PROMPT = `You are an expert exam answer writer.
 
-USE ONLY NEEDED SECTIONS — do not add all sections for every question:
+USE ONLY SECTIONS NEEDED for the question type:
 
-For 2-mark questions — use ONLY:
+For 2-mark:
 ## DEFINITION
-[1-2 line answer]
-
+[1-2 lines]
 ## EXAMPLE
-[1 sentence example]
+[1 sentence]
 
-For 5-mark questions — use:
+For 5-mark:
 ## DEFINITION
 [2-3 lines]
-
 ## KEY POINTS
 - point with explanation
 - point with explanation
 - point with explanation
-
 ## EXAMPLE
 [brief example]
 
-For 7-mark questions — use:
+For 7-mark:
 ## DEFINITION
 [3-4 lines]
-
 ## KEY POINTS
-- detailed points (5+)
-
+- 5+ detailed points
 ## EXAMPLE
-[detailed example OR step-by-step]
-
+[detailed example]
 ## DIAGRAM
-DIAGRAM: [description] ← only if question involves a visual concept
+DIAGRAM: [description] ← only if visual concept
 
-For 10-mark questions — use all relevant sections with full detail.
+For 10-mark: All sections, very detailed.
 
-For COMPARE questions — use ONLY:
+For COMPARE questions — ONLY:
 ## COMPARISON
 | Feature | A | B |
 |---------|---|---|
-[5-7 rows]
+[6-8 rows with examples]
 
-For CODE questions — use:
+For CODE questions:
 ## DEFINITION
 [brief]
-
 ## CODE
 \`\`\`language
 [working code]
@@ -127,21 +118,17 @@ Output:
 [output]
 \`\`\`
 
-RULES:
-- Use ONLY sections relevant to the question
-- Do NOT add USES/APPLICATIONS unless question asks for it
-- Do NOT add DIAGRAM unless concept has a visual
+STRICT RULES:
+- Do NOT add USES unless question asks
+- Do NOT add DIAGRAM unless concept is visual
 - Bold **key terms** only
-- Be direct, no filler text`;
+- No filler sentences`;
 
 async function callGroq(messages) {
   const apiKey = process.env.GROQ_API_KEY;
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages,
@@ -165,42 +152,33 @@ function ensureDiagram(answer, question) {
     'linked list': 'linked list nodes and pointers',
     'binary tree': 'binary search tree',
     'osi': 'OSI model seven layers',
-    'tcp/ip': 'TCP/IP model four layers',
     'paging': 'paging memory management page table',
     'bubble sort': 'bubble sort step by step',
     'photosynthesis': 'photosynthesis reactants chloroplast products',
   };
   for (const [kw, diag] of Object.entries(map)) {
-    if (q.includes(kw)) {
-      return answer + `\n\n## DIAGRAM\nDIAGRAM: ${diag}`;
-    }
+    if (q.includes(kw)) return answer + `\n\n## DIAGRAM\nDIAGRAM: ${diag}`;
   }
   return answer;
 }
 
 router.post('/single', authMiddleware, async (req, res) => {
   const { question, mark, subject } = req.body;
-  if (!question || !mark) return res.status(400).json({ error: 'Question and mark value are required' });
-  if (![2, 5, 7, 10].includes(Number(mark))) return res.status(400).json({ error: 'Mark must be 2, 5, 7, or 10' });
-
+  if (!question || !mark) return res.status(400).json({ error: 'Question and mark required' });
+  if (![2, 5, 7, 10].includes(Number(mark))) return res.status(400).json({ error: 'Mark must be 2,5,7,10' });
   try {
     const isMath = isMathQuestion(question);
     const systemPrompt = isMath ? MATH_PROMPT : THEORY_PROMPT;
     const userMsg = subject
       ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
       : `Question (${mark} marks): ${question}`;
-
     let answer = await callGroq([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMsg }
     ]);
-
-    if (!isMath && Number(mark) >= 5) {
-      answer = ensureDiagram(answer, question);
-    }
-
+    if (!isMath && Number(mark) >= 5) answer = ensureDiagram(answer, question);
     await pool.query(
-      'INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
+      'INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1,$2,$3,$4,$5)',
       [req.userId, question.trim(), answer, Number(mark), subject || '']
     );
     res.json({ answer, question, mark: Number(mark), subject: subject || '' });
@@ -212,35 +190,29 @@ router.post('/single', authMiddleware, async (req, res) => {
 
 router.post('/batch', authMiddleware, async (req, res) => {
   const { questions } = req.body;
-  if (!Array.isArray(questions) || questions.length === 0)
-    return res.status(400).json({ error: 'Questions array is required' });
+  if (!Array.isArray(questions) || !questions.length)
+    return res.status(400).json({ error: 'Questions array required' });
   if (questions.length > 5)
-    return res.status(400).json({ error: 'Maximum 5 questions per batch' });
-
+    return res.status(400).json({ error: 'Max 5 questions' });
   const results = [], errors = [];
   for (const q of questions) {
     const { question, mark, subject } = q;
-    if (!question || !mark) { errors.push({ question, error: 'Missing question or mark' }); continue; }
+    if (!question || !mark) { errors.push({ question, error: 'Missing fields' }); continue; }
     try {
       const isMath = isMathQuestion(question);
       const systemPrompt = isMath ? MATH_PROMPT : THEORY_PROMPT;
       const userMsg = subject
         ? `Subject: ${subject}\nQuestion (${mark} marks): ${question}`
         : `Question (${mark} marks): ${question}`;
-
       let answer = await callGroq([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMsg }
       ]);
-
       if (!isMath && Number(mark) >= 5) answer = ensureDiagram(answer, question);
-
-      await pool.query('INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1, $2, $3, $4, $5)',
+      await pool.query('INSERT INTO history (user_id, question, answer, mark, subject) VALUES ($1,$2,$3,$4,$5)',
         [req.userId, question.trim(), answer, Number(mark), subject || '']);
       results.push({ question, answer, mark: Number(mark), subject: subject || '' });
-    } catch (err) {
-      errors.push({ question, error: err.message });
-    }
+    } catch (err) { errors.push({ question, error: err.message }); }
   }
   res.json({ results, errors });
 });
