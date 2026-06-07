@@ -52,23 +52,23 @@ function isMathQuestion(question) {
 function detectQuestionType(question){
   const q = question.toLowerCase();
 
-if(/compare|difference|distinguish|differentiate|vs|versus/i.test(q))
-  return 'comparison';
-
-if(/write.*program|write.*code|implement|c program|java program|python program/i.test(q))
-    return 'programming';
-
-if(/algorithm|bfs|dfs|merge sort|quick sort|dijkstra|prim|kruskal/i.test(q))
-  return 'algorithm';
-
-  if(/advantages|benefits/.test(q))
-    return 'advantages';
-
-  if(/what is|define/.test(q))
-    return 'definition';
-
   if(isMathQuestion(question))
     return 'mathematics';
+
+  if(/compare|difference|distinguish|differentiate|vs|versus/i.test(q))
+    return 'comparison';
+
+  if(/write.*program|write.*code|implement|c program|java program/i.test(q))
+    return 'programming';
+
+  if(/algorithm/i.test(q))
+    return 'algorithm';
+
+  if(/advantages|benefits/i.test(q))
+    return 'advantages';
+
+  if(/what is|define/i.test(q))
+    return 'definition';
 
   return 'theory';
 }
